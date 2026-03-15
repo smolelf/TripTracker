@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, FlatList, StyleSheet, Modal, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, FlatList, StyleSheet,
+  Modal, TextInput, TouchableOpacity, Alert,
+  ActivityIndicator } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler'; 
 import { fetchAllTrips, updateTripFareDetails, deleteTrip } from './services/db'; 
 import { useTripStore } from './store/useTripStore';
@@ -138,7 +140,26 @@ export default function HistoryScreen({ onBack }: { onBack: () => void }) {
               });
             }}
           >
-            <Polyline coordinates={snapTrip.path} strokeColor="#2ecc71" strokeWidth={12} lineJoin="miter" />
+            
+            {/* DYNAMIC SPEED ROUTE LINE */}
+            {snapTrip.path.map((point, index) => {
+              if (index === 0) return null;
+              
+              // Convert m/s to km/h
+              const speedKmH = point.speed * 3.6;
+              const segmentColor = speedKmH < 40 ? '#F44336' : speedKmH <= 90 ? '#FFC107' : '#4CAF50';
+              
+              return (
+                <Polyline 
+                  key={index} 
+                  coordinates={[snapTrip.path[index - 1], point]} 
+                  strokeColor={segmentColor} 
+                  strokeWidth={12} // Kept thick for the high-res 1080x1920 export
+                  lineJoin="round"
+                  lineCap="round"
+                />
+              );
+            })}
 
             {snapTrip.path.length > 0 && (
               <Marker coordinate={snapTrip.path[0]} pinColor="green" />
@@ -236,11 +257,11 @@ export default function HistoryScreen({ onBack }: { onBack: () => void }) {
           <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>Recalculate Trip</Text>
             <Text style={styles.label}>Toll Fee (RM)</Text>
-            <TextInput style={[styles.input, { color: theme.text, borderColor: theme.input }]} value={editToll} onChangeText={setEditToll} keyboardType="numeric" />
+            <TextInput style={[styles.input, { color: theme.text, borderColor: theme.input }]} value={editToll} onChangeText={setEditToll} keyboardType="decimal-pad" />
             <Text style={styles.label}>Rate per KM</Text>
-            <TextInput style={[styles.input, { color: theme.text, borderColor: theme.input }]} value={editPriceKm} onChangeText={setEditPriceKm} keyboardType="numeric" />
+            <TextInput style={[styles.input, { color: theme.text, borderColor: theme.input }]} value={editPriceKm} onChangeText={setEditPriceKm} keyboardType="decimal-pad" />
             <Text style={styles.label}>Rate per Min</Text>
-            <TextInput style={[styles.input, { color: theme.text, borderColor: theme.input }]} value={editPriceMin} onChangeText={setEditPriceMin} keyboardType="numeric" />
+            <TextInput style={[styles.input, { color: theme.text, borderColor: theme.input }]} value={editPriceMin} onChangeText={setEditPriceMin} keyboardType="decimal-pad" />
             <View style={styles.modalButtons}>
               <TouchableOpacity onPress={() => setSelectedTrip(null)}><Text style={{padding: 10, color: theme.sub}}>Cancel</Text></TouchableOpacity>
               <TouchableOpacity style={styles.saveBtn} onPress={handleSaveEdit}><Text style={{color: 'white', fontWeight: 'bold'}}>Save</Text></TouchableOpacity>
@@ -248,6 +269,14 @@ export default function HistoryScreen({ onBack }: { onBack: () => void }) {
           </View>
         </View>
       </Modal>
+      {/* FULL SCREEN LOADING OVERLAY */}
+      {isCapturing && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#2ecc71" />
+          <Text style={styles.loadingText}>Generating Trip Poster...</Text>
+          <Text style={styles.loadingSubText}>Loading high-res map tiles</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -292,4 +321,24 @@ const styles = StyleSheet.create({
   snapLabel: { color: '#888888', fontSize: 22, fontWeight: 'bold', letterSpacing: 2, marginBottom: 15 },
   snapValue: { color: '#FFFFFF', fontSize: 45, fontWeight: 'bold' },
   snapSubValue: { color: '#AAAAAA', fontSize: 20, marginTop: 8, fontWeight: '600', letterSpacing: 1 },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999, // Forces it to the absolute top layer
+    elevation: 10,
+  },
+  loadingText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 20,
+    letterSpacing: 1,
+  },
+  loadingSubText: {
+    color: '#AAAAAA',
+    fontSize: 14,
+    marginTop: 8,
+  },
 });

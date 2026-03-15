@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, TextInput,
-  Alert, StatusBar, KeyboardAvoidingView, Platform,
-  BackHandler, Keyboard } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, TextInput, Alert, StatusBar, Platform, BackHandler, Keyboard } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapView, { Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useTripStore } from './store/useTripStore';
@@ -19,9 +17,27 @@ const nightStyle = [
   { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#17263c" }] }
 ];
 
+// Helper to calculate direction between two GPS coordinates
+const getBearing = (startLat: number, startLng: number, destLat: number, destLng: number) => {
+  const startLatRad = startLat * (Math.PI / 180);
+  const startLngRad = startLng * (Math.PI / 180);
+  const destLatRad = destLat * (Math.PI / 180);
+  const destLngRad = destLng * (Math.PI / 180);
+
+  const y = Math.sin(destLngRad - startLngRad) * Math.cos(destLatRad);
+  const x = Math.cos(startLatRad) * Math.sin(destLatRad) - 
+            Math.sin(startLatRad) * Math.cos(destLatRad) * Math.cos(destLngRad - startLngRad);
+  
+  const brng = Math.atan2(y, x) * (180 / Math.PI);
+  return (brng + 360) % 360;
+};
+
 export default function App() {
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
+  const lastHeadingRef = useRef(0);
+  const [isOverviewMode, setIsOverviewMode] = useState(false);
+  
   const [view, setView] = useState<'MAP' | 'HISTORY' | 'SETTINGS'>('MAP');
   const [tollInput, setTollInput] = useState(''); 
   
@@ -35,7 +51,6 @@ export default function App() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
-    // Android uses 'DidShow', iOS uses 'WillShow'
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
@@ -55,12 +70,10 @@ export default function App() {
   // Intercept Android hardware back button
   useEffect(() => {
     const backAction = () => {
-      // If we are NOT on the map, go back to the map
       if (view !== 'MAP') {
         setView('MAP');
-        return true; // Tells Android "We handled it, don't close the app"
+        return true; 
       }
-      // If we ARE on the map, let Android close the app naturally
       return false; 
     };
 
@@ -69,9 +82,10 @@ export default function App() {
       backAction
     );
 
-    return () => backHandler.remove(); // Cleanup listener
+    return () => backHandler.remove(); 
   }, [view]);
 
+  // Init Database
   useEffect(() => {
     const setup = async () => { try { await initDB(); } catch (e) { console.error(e); } };
     setup();
@@ -85,22 +99,42 @@ export default function App() {
       const location = await Location.getCurrentPositionAsync({});
       mapRef.current?.animateCamera({
         center: { latitude: location.coords.latitude, longitude: location.coords.longitude },
-        pitch: 60, // Tilted slightly more for a "driving" view
-        zoom: 18 // Zoomed in closer for driving
+        pitch: 60, 
+        zoom: 18 
       });
     })();
   }, []);
 
-  // Auto-follow camera - made faster and smoother
+  // Auto-follow camera - dynamically calculates heading
   useEffect(() => {
     if (status === 'TRACKING' && isFollowing && lastLocation && mapRef.current) {
+      if (path.length >= 2) {
+        const prev = path[path.length - 2];
+        const curr = path[path.length - 1];
+        
+        if (curr.speed > 1) {
+           lastHeadingRef.current = getBearing(prev.latitude, prev.longitude, curr.latitude, curr.longitude);
+        }
+      }
+
       mapRef.current.animateCamera({
         center: { latitude: lastLocation.latitude, longitude: lastLocation.longitude },
         pitch: 60, 
-        zoom: 18
-      }, { duration: 500 }); // Faster animation so it doesn't fight the GPS updates
+        zoom: 18,
+        heading: lastHeadingRef.current 
+      }, { duration: 1000 }); 
     }
-  }, [lastLocation, isFollowing, status]);
+  }, [lastLocation, isFollowing, status, path]);
+
+  // Auto-framer for Live Overview Mode
+  useEffect(() => {
+    if (status === 'TRACKING' && isOverviewMode && path.length > 0 && mapRef.current) {
+      mapRef.current.fitToCoordinates(path, {
+        edgePadding: { top: 100, right: 100, bottom: 400, left: 100 },
+        animated: true, 
+      });
+    }
+  }, [path, isOverviewMode, status]);
 
   const theme = {
     bg: isDarkMode ? '#121212' : '#FFFFFF',
@@ -118,15 +152,16 @@ export default function App() {
 
     try {
       await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-        accuracy: Location.Accuracy.Highest, // Upgraded from BestForNavigation
-        timeInterval: 1000, // FIX: Ping every 2 seconds instead of 5
-        distanceInterval: 0.001, // FIX: Ping every 2 meters instead of 10
+        accuracy: Location.Accuracy.Highest, 
+        timeInterval: 1000, 
+        distanceInterval: 0, 
         foregroundService: {
           notificationTitle: "Trip Tracker Active",
           notificationBody: "Monitoring your fare...",
           notificationColor: "#2196F3",
         },
       });
+      setIsOverviewMode(false);
       startTrip();
     } catch (error) {
       console.error(error);
@@ -144,13 +179,11 @@ export default function App() {
         setElapsedSecs((prev) => prev + 1);
       }, 1000);
     } else if (status === 'IDLE') {
-      setElapsedSecs(0); // Reset when trip is finished/idle
+      setElapsedSecs(0); 
     }
-    // If status is PAUSED, the interval clears but state is kept, perfectly pausing the timer!
     return () => clearInterval(interval);
   }, [status]);
 
-  // Helper to format 65 seconds into "01:05"
   const formatTime = (totalSeconds: number) => {
     const h = Math.floor(totalSeconds / 3600);
     const m = Math.floor((totalSeconds % 3600) / 60);
@@ -171,12 +204,15 @@ export default function App() {
     const serializedPath = JSON.stringify(path); 
     await finishTrip(finalToll, serializedPath); 
     setTollInput('');
+    setIsOverviewMode(false);
     Alert.alert("Success", "Trip saved successfully.");
   };
 
   const showOverview = () => {
     if (path.length > 0 && mapRef.current) {
       setFollowing(false); 
+      setIsOverviewMode(true); // <-- Activate live overview tracking
+      
       mapRef.current.fitToCoordinates(path, {
         edgePadding: { top: 100, right: 100, bottom: 400, left: 100 },
         animated: true,
@@ -234,8 +270,15 @@ export default function App() {
           style={[styles.actionBtn, isFollowing ? styles.activeBtn : {backgroundColor: theme.card}]} 
           onPress={() => {
             setFollowing(true);
+            setIsOverviewMode(false); // <-- Disable overview when returning to 3D navigation
+            
             if (lastLocation) {
-              mapRef.current?.animateCamera({ center: { latitude: lastLocation.latitude, longitude: lastLocation.longitude }, pitch: 60, zoom: 18 });
+              mapRef.current?.animateCamera({ 
+                center: { latitude: lastLocation.latitude, longitude: lastLocation.longitude }, 
+                pitch: 60, 
+                zoom: 18,
+                heading: lastHeadingRef.current 
+              });
             }
           }}
         >
@@ -246,19 +289,13 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
-    {/* FIX: Full-screen invisible wrapper for Keyboard Avoiding */}
       <View style={[styles.controls, { 
         backgroundColor: theme.card,
         position: 'absolute',
-            left: 20,
-            right: 20,
-            // If keyboard is open, push it up by keyboardHeight + a 10px buffer. 
-            // If closed, rest at 30px from the bottom.
-            bottom: keyboardHeight > 0 ? keyboardHeight + 10 : 30
-        }]}>
-        {/* <Text style={styles.statusText}>{status}</Text>
-        <Text style={[styles.fareText, { color: theme.text }]}>RM {currentFare.toFixed(2)}</Text>
-         */}
+        left: 20,
+        right: 20,
+        bottom: keyboardHeight > 0 ? keyboardHeight + 10 : 30
+      }]}>
 
         {(status === 'TRACKING' || status === 'PAUSED') ? (
           <View style={styles.liveDashboard}>
@@ -352,7 +389,6 @@ const styles = StyleSheet.create({
   icon: { fontSize: 22 },
   separator: { height: 2, width: 30, backgroundColor: 'rgba(128,128,128,0.2)', marginBottom: 10 },
   
-  // FIX: Removed `position: absolute` so the KeyboardAvoidingView can physically push it up
   controls: { padding: 20, borderRadius: 20, elevation: 10, marginHorizontal: 20 },
   
   statusText: { fontSize: 10, color: '#aaa', fontWeight: 'bold', textTransform: 'uppercase' },
