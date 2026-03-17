@@ -7,6 +7,7 @@ import HistoryScreen from './HistoryScreen';
 import SettingsScreen from './SettingsScreen';
 import { initDB } from './services/db';
 import * as Location from 'expo-location';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { LOCATION_TASK_NAME } from './services/locationTask';
 
 const nightStyle = [
@@ -44,8 +45,17 @@ export default function App() {
   const { 
     status, startTrip, stopTrip, pauseTrip, resumeTrip, finishTrip,
     path, totalDistance, currentFare, lastLocation,
-    isFollowing, setFollowing, isDarkMode, toggleDarkMode
+    isFollowing, setFollowing, isDarkMode, toggleDarkMode,
+    keepAwake,
   } = useTripStore();
+
+  useEffect(() => {
+    if (keepAwake) {
+      activateKeepAwakeAsync();
+    } else {
+      deactivateKeepAwake();
+    }
+  }, [keepAwake]);
 
   // --- BULLETPROOF KEYBOARD LOGIC ---
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -241,8 +251,13 @@ export default function App() {
         showsMyLocationButton={false}
         showsCompass={false}
         showsMapToolbar={false}
-        userLocationUpdateInterval={1000} 
-        userLocationFastestInterval={500}
+        userLocationUpdateInterval={500} 
+        userLocationFastestInterval={250}
+        onPanDrag={() => {
+          // If user drags the map, break out of all active camera modes!
+          if (isFollowing) setFollowing(false);
+          if (isOverviewMode) setIsOverviewMode(false);
+        }}
         initialCamera={{ center: { latitude: 3.0738, longitude: 101.5183 }, pitch: 45, heading: 0, altitude: 1000, zoom: 15 }} 
       >
         {path.map((point, index) => {
@@ -284,8 +299,11 @@ export default function App() {
         >
           <Text style={[styles.icon, isFollowing && { color: 'white' }]}>🎯</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.actionBtn, {backgroundColor: theme.card}]} onPress={showOverview}>
-          <Text style={styles.icon}>🗺️</Text>
+        <TouchableOpacity 
+          style={[styles.actionBtn, isOverviewMode ? styles.activeBtn : {backgroundColor: theme.card}]} 
+          onPress={showOverview}
+        >
+          <Text style={[styles.icon, isOverviewMode && { color: 'white' }]}>🗺️</Text>
         </TouchableOpacity>
       </View>
 

@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Alert, Switch } from 'react-native';
 import { useTripStore } from './store/useTripStore';
 
 export default function SettingsScreen({ onBack }: { onBack: () => void }) {
-  const { isDarkMode, pricePerKm, pricePerMin, setPrices } = useTripStore();
+  const { isDarkMode, pricePerKm, pricePerMin, setPrices, keepAwake, toggleKeepAwake } = useTripStore();
   
-  // Local state for the inputs so we only update the store when pressing "Save"
-  const [kmInput, setKmInput] = useState(pricePerKm.toString());
-  const [minInput, setMinInput] = useState(pricePerMin.toString());
+  // Initialize state by converting the stored floats (1.25) back into raw strings ("125")
+  const [kmInput, setKmInput] = useState(Math.round(pricePerKm * 100).toString());
+  const [minInput, setMinInput] = useState(Math.round(pricePerMin * 100).toString());
 
   const theme = {
     bg: isDarkMode ? '#121212' : '#f8f9fa',
@@ -18,17 +18,21 @@ export default function SettingsScreen({ onBack }: { onBack: () => void }) {
     sub: isDarkMode ? '#aaaaaa' : '#666666'
   };
 
+  // The visual display output (e.g. "0.25")
+  const displayKm = (parseInt(kmInput || '0', 10) / 100).toFixed(2);
+  const displayMin = (parseInt(minInput || '0', 10) / 100).toFixed(2);
+
+  // Strip non-numbers exactly like the toll input
+  const handleKmChange = (text: string) => setKmInput(text.replace(/[^0-9]/g, ''));
+  const handleMinChange = (text: string) => setMinInput(text.replace(/[^0-9]/g, ''));
+
   const handleSave = () => {
-    const parsedKm = parseFloat(kmInput);
-    const parsedMin = parseFloat(minInput);
+    // Convert back to floats before sending to Zustand
+    const finalKm = parseInt(kmInput || '0', 10) / 100;
+    const finalMin = parseInt(minInput || '0', 10) / 100;
 
-    if (isNaN(parsedKm) || isNaN(parsedMin)) {
-      Alert.alert("Invalid Input", "Please enter valid numbers for the rates.");
-      return;
-    }
-
-    setPrices(parsedKm, parsedMin);
-    Alert.alert("Saved", "Your fare rates have been updated.");
+    setPrices(finalKm, finalMin);
+    Alert.alert("Saved", "Your settings have been updated.");
     onBack();
   };
 
@@ -45,15 +49,31 @@ export default function SettingsScreen({ onBack }: { onBack: () => void }) {
       </View>
 
       <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Fare Configuration</Text>
+        
+        {/* KEEP AWAKE TOGGLE */}
+        <View style={styles.settingRow}>
+          <View>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Keep Screen Awake</Text>
+            <Text style={[styles.label, { color: theme.sub }]}>Prevent phone from sleeping</Text>
+          </View>
+          <Switch 
+            value={keepAwake} 
+            onValueChange={toggleKeepAwake} 
+            trackColor={{ false: '#767577', true: '#2ecc71' }}
+          />
+        </View>
+
+        <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+        <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 20 }]}>Fare Configuration</Text>
         
         <View style={styles.inputGroup}>
           <Text style={[styles.label, { color: theme.sub }]}>Price per Kilometer (RM)</Text>
           <TextInput
             style={[styles.input, { color: theme.text, backgroundColor: theme.inputBg, borderColor: theme.border }]}
             keyboardType="numeric"
-            value={kmInput}
-            onChangeText={setKmInput}
+            value={displayKm}
+            onChangeText={handleKmChange}
           />
         </View>
 
@@ -62,8 +82,8 @@ export default function SettingsScreen({ onBack }: { onBack: () => void }) {
           <TextInput
             style={[styles.input, { color: theme.text, backgroundColor: theme.inputBg, borderColor: theme.border }]}
             keyboardType="numeric"
-            value={minInput}
-            onChangeText={setMinInput}
+            value={displayMin}
+            onChangeText={handleMinChange}
           />
         </View>
 
@@ -81,7 +101,9 @@ const styles = StyleSheet.create({
   backBtn: { fontSize: 18, color: '#2196F3', marginRight: 20 },
   title: { fontSize: 26, fontWeight: 'bold' },
   card: { marginHorizontal: 20, padding: 25, borderRadius: 20, borderWidth: 1, elevation: 5, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },
-  sectionTitle: { fontSize: 18, fontWeight: '700', marginBottom: 20 },
+  settingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  divider: { height: 1, width: '100%', marginBottom: 20 },
+  sectionTitle: { fontSize: 18, fontWeight: '700' },
   inputGroup: { marginBottom: 20 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8 },
   input: { borderWidth: 1, borderRadius: 12, padding: 15, fontSize: 16, fontWeight: '500' },

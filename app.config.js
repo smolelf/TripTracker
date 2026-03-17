@@ -15,7 +15,7 @@ export default {
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emmy.triptracker",
+      "bundleIdentifier": "com.emmy.triptracker"
     },
     "android": {
       "permissions": [
@@ -48,11 +48,13 @@ export default {
             "notificationColor": "#2196F3"
           }
         }
-      ]
+      ],
+      "react-native-maps"
     ],
     "extra": {
       "eas": {
         "projectId":  "dfa974d9-3e2e-4d92-a9cd-93066f94a609"
-  }}
-}
+      }
+    }
+  }
 }

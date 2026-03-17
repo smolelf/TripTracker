@@ -39,7 +39,9 @@ interface TripState {
   setFollowing: (val: boolean) => void;
   setPrices: (kmPrice: number, minPrice: number) => void;
   isDarkMode: boolean;
+  keepAwake: boolean;
   toggleDarkMode: () => void;
+  toggleKeepAwake: () => void;
   startTrip: () => void;
   pauseTrip: () => void;
   resumeTrip: () => void;
@@ -62,8 +64,10 @@ export const useTripStore = create<TripState>()(
       lastLocation: null,
       isFollowing: true,
       isDarkMode: false,
+      keepAwake: true,
       
       toggleDarkMode: () => set((state) => ({ isDarkMode: !state.isDarkMode })),
+      toggleKeepAwake: () => set((state) => ({ keepAwake: !state.keepAwake })),
       setFollowing: (val) => set({ isFollowing: val }),
 
       startTrip: () => set({ 
@@ -81,12 +85,27 @@ export const useTripStore = create<TripState>()(
         let addedDistance = 0;
         let addedTimeMin = 0;
 
-        // Scrub the data to ensure no NaN values are ever generated
         if (lastLocation && newPoint) {
+          // 🛡️ SANITY CHECK 1: The "Time Travel" Filter
+          // If the OS tries to flush a cached point that happened BEFORE our last recorded point, DROP IT.
+          if (newPoint.timestamp <= lastLocation.timestamp) {
+            return; 
+          }
+
           const dist = getDistance(
             lastLocation.latitude, lastLocation.longitude,
             newPoint.latitude, newPoint.longitude
           );
+
+          // 🛡️ SANITY CHECK 2: The "Teleportation" Filter
+          // If the distance implies the car is moving faster than ~200km/h (e.g. 55 meters per second), 
+          // it is a GPS glitch. Drop it to prevent distance inflation.
+          const timeGapSecs = (newPoint.timestamp - lastLocation.timestamp) / 1000;
+          const speedMps = (dist * 1000) / timeGapSecs;
+          if (speedMps > 55) { 
+            return; 
+          }
+
           if (!isNaN(dist)) addedDistance = dist;
 
           const timeGap = (newPoint.timestamp - lastLocation.timestamp) / 60000;
@@ -162,11 +181,11 @@ export const useTripStore = create<TripState>()(
     {
       name: 'trip-settings-storage', // The key used in AsyncStorage
       storage: createJSONStorage(() => AsyncStorage),
-      // CRITICAL: Only save these specific fields to local storage
       partialize: (state) => ({ 
         pricePerKm: state.pricePerKm, 
         pricePerMin: state.pricePerMin,
-        isDarkMode: state.isDarkMode
+        isDarkMode: state.isDarkMode,
+        keepAwake: state.keepAwake
       }),
     }
   )
